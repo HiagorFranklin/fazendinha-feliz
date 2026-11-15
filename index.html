@@ -1761,7 +1761,7 @@ function updateAnimals(dt, t) {
     const sw = Math.sin(a.ph);
     if (P.legs.length === 4) { P.legs[0].rotation.x = P.legs[3].rotation.x = sw * .5 * a.k; P.legs[1].rotation.x = P.legs[2].rotation.x = -sw * .5 * a.k; }
     else if (P.legs.length === 2) { P.legs[0].rotation.x = sw * .8 * a.k; P.legs[1].rotation.x = -sw * .8 * a.k; }
-    p.y = Math.abs(sw) * (a.hop ? .05 : .025) * a.k;
+    p.y = groundY(p.x, p.z) + Math.abs(sw) * (a.hop ? .05 : .025) * a.k;   // acompanha o terreno (o pasto não é plano)
     if (P.head) {
       const ax = AV.pos.x - p.x, az = AV.pos.z - p.z, near = !moving && Math.hypot(ax, az) < 4.2 && mode === 'play';
       const look = near ? clamp(Math.atan2(Math.sin(Math.atan2(ax, az) - a.m.rotation.y), Math.cos(Math.atan2(ax, az) - a.m.rotation.y)), -.9, .9) : null;
