@@ -339,6 +339,8 @@
 <script src="modelos/fazendeiro.js"></script>
 <script src="modelos/fazendeira.js"></script>
 <script src="modelos/vaca.js"></script>
+<script src="modelos/porco.js"></script>
+<script src="sons/sons.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -372,6 +374,7 @@ const V1 = new THREE.Vector3(), V2 = new THREE.Vector3(), V3 = new THREE.Vector3
 
 const SET_KEY = 'fazenda-vale-verde-settings';
 const SETTINGS = { q: 'high', reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, ui: 1, icons: true, map: true, tilt: true };
+const FIRST_RUN = (() => { try { return !localStorage.getItem(SET_KEY); } catch { return false; } })();
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SET_KEY)) || {}); } catch {}
 const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SETTINGS)); } catch {} };
 const QUALITY = {
@@ -380,6 +383,9 @@ const QUALITY = {
   low:  { name: 'Baixa', dpr: 1,    shadow: 1024, bloom: false, msaa: 0, grass: .3,  ao: false, blur: false }
 };
 if (!QUALITY[SETTINGS.q]) SETTINGS.q = 'high';
+// celular: começa em Média (ou Baixa nos aparelhos com pouca memória) e sem o desfoque de maquete
+const IS_PHONE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+if (FIRST_RUN && IS_PHONE) { SETTINGS.q = (navigator.deviceMemory || 4) <= 3 ? 'low' : 'med'; SETTINGS.tilt = false; saveSettings(); }
 
 /* =====================================================================
    RENDERER, CÂMERA, PÓS-PROCESSAMENTO
@@ -691,6 +697,8 @@ const WORLD = { x0: -100, x1: 118, z0: -62, z1: 93 };
 const LOTS = { pasto2: { x: -20, z: 42.5, w: 14, d: 10, y: 0 }, pomar: { x: -3, z: 42.5, w: 13, d: 10, y: 0 }, apiario: { x: 12, z: 42.5, w: 8, d: 7, y: 0 }, estufa: { x: 25.5, z: 42.5, w: 10, d: 7, y: -.2 } };
 const STABLE = { x: -24.5, z: -26.5, rot: Math.PI / 2 }, DEPOT = { x: -36, z: 19.5, rot: 1.75 };
 const TENTS = [{ x: 22.1, z: 21.2, rot: Math.PI + .3 }, { x: 25.9, z: 21.6, rot: Math.PI + .3 }];
+// casas da vila (mais espaçadas: antes ficavam a ~3 m uma da outra)
+const VILLAGE_POS = { padaria: [48, 14.5, 0], neide: [58.5, 17, -.2], cida: [70, 21.5, -.3] };
 const DECOR_G = {};   // grupos das lavouras de enfeite (somem quando a roça do lugar é comprada)
 const DECOR_FIELDS = [{ x: 0, z: 26, w: 13, d: 9, rot: 0, kind: 'wheat' }, { x: 15.5, z: 26, w: 9, d: 9, rot: 0, kind: 'corn' }];
 function terrainBase(x, z) {
@@ -718,10 +726,17 @@ PATHS.push({ w: 1.3, p: [[8.6, 13.6], [9.4, 19], [9.4, 35.5]] }, { w: 1.3, p: [[
 PATHS.push({ w: 1.3, p: [[-15.6, 4.2], [-23, 1.5], [-34, 5.6], [-43, -4], [-47, -11]] },   // trilha do Haras
   { w: 1.3, p: [[5.8, 35.5], [5.8, 52], [1, 66], [-6, 78]] });                                // trilha da clareira, ao sul dos lotes
 const CLEARING = { x: -6, z: 83 };
+// estradas mais largas e curvas arredondadas (Chaikin); P.raw guarda os pontos originais para o personagem seguir
+function chaikin(pts, it) {
+  for (let k = 0; k < it; k++) { const o = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1]; o.push([ax * .75 + bx * .25, az * .75 + bz * .25], [ax * .25 + bx * .75, az * .25 + bz * .75]); } o.push(pts[pts.length - 1]); pts = o; }
+  return pts;
+}
+for (const P of PATHS) { P.raw = P.p; if (P.w < 2) P.w += .3; if (P.p.length > 2) P.p = chaikin(P.p, 2); }
+const onPlank = (x, z) => PATHS.some(P => P.w <= 2.05 && polyDist(x, z, P.p) < P.w * .7);   // estradas de tábua (a principal é de terra)
 function pathDist(x, z) { let m = 1e9; for (const P of PATHS) m = Math.min(m, polyDist(x, z, P.p) - P.w); return m; }
 const BLOCK = [[-22, -9, 8], [-28.5, -2.5, 4], [-21, 8, 8], [FEIRA.x, FEIRA.z, 5], [24, -9, 10.5], [8, -32, 6], [-14.6, 16.4, 2.5], [-13, 18.5, 5], [-17, 19.5, 3],
   [-28.7, 13.2, 4], [-35, -55, 9], [32, 17.8, 3], [39.7, 20.5, 5], [13.8, -10.6, 1.5],
-  [48, 15.5, 6.5], [57, 19, 6.5], [64.5, 22.5, 6.5], [15.4, -9, 3]];
+  [48, 14.5, 6.5], [58.5, 17, 6.5], [70, 21.5, 6.5], [15.4, -9, 3]];
 BLOCK.push([FARM2.x, FARM2.z, 24], [CLEARING.x, CLEARING.z, 8]);
 for (const f of DECOR_FIELDS) BLOCK.push([f.x, f.z, Math.hypot(f.w, f.d) / 2 + .5]);
 BLOCK.push([HORTA.x, HORTA.z, 9.5]);
@@ -730,8 +745,18 @@ BLOCK.push([SHOP.x, SHOP.z, 6], [24, 21.4, 3.2], [STABLE.x, STABLE.z, 5.5], [DEP
 for (const k in LOTS) BLOCK.push([LOTS[k].x, LOTS[k].z, Math.hypot(LOTS[k].w, LOTS[k].d) / 2 + 1.5]);   // nada de árvore nem capim alto no Sítio Novo
 const PASTURE = { x0: -16, x1: -1, z0: -30, z1: -15 };
 const COLL_SEGS = [];
-const COLL_CIRC = [[-22, -9, 5.8], [-28.5, -2.5, 2.4], [-21, 8, 5.2], [FEIRA.x, FEIRA.z, 3.2], [8, -32, 2.8], [-14.6, 16.4, 1.4], [-17, 19.5, 1.7], [-35, -55, 4],
-  [14.2, 18.0, 1.4], [-20.1, -18.4, 1], [-18.9, -17.0, 1], [-6, -18, 1.3], [-19.8, -4.0, .55], [-20.7, -3.4, .55], [-30, 2, .7], [-26, 20, .7], [-24, -20, .7], [32, 17.8, .3], [13.8, -10.6, .35]];
+// retângulo de colisão (4 paredes) girado como o prédio
+function collRect(cx, cz, w, d, rot) {
+  const c = Math.cos(rot), s2 = Math.sin(rot), W = (lx, lz) => [cx + lx * c + lz * s2, cz - lx * s2 + lz * c];
+  const P = [W(-w / 2, -d / 2), W(w / 2, -d / 2), W(w / 2, d / 2), W(-w / 2, d / 2)];
+  for (let i = 0; i < 4; i++) COLL_SEGS.push([...P[i], ...P[(i + 1) % 4]]);
+  return W;
+}
+
+const COLL_CIRC = [[-28.5, -2.5, 2.4], [FEIRA.x, FEIRA.z, 3.2], [8, -32, 2.8], [-14.6, 16.4, 1.4], [-17, 19.5, 1.7], [-35, -55, 4],
+  [14.2, 18.0, 1.4], [-20.1, -18.4, 1], [-18.9, -17.0, 1], [-6, -18, 1.3], [-19.8, -4.0, .55], [-20.7, -3.4, .55], [-30, 2, .7], [-26, 20, .7], [-24, -20, .7], [32.8, 15.54, .25], [31.2, 20.06, .25], [13.8, -10.6, .35]];
+{ const W = collRect(-21, 8, 8.6, 6.6, 1.35); for (const lx of [-3, 0]) COLL_CIRC.push([...W(lx, 5.05), .2]); }   // casa + pilares da varanda
+collRect(-22, -9, 10.4, 8.4, .9);   // celeiro
 const blocked = (x, z, pad = 0) => BLOCK.some(b => Math.hypot(x - b[0], z - b[1]) < b[2] + pad);
 const inField = (x, z, pad = 0) => Math.abs(x) < 13.5 + pad && Math.abs(z) < 10.3 + pad;
 const inPasture = (x, z, pad = 0) => x > PASTURE.x0 - pad && x < PASTURE.x1 + pad && z > PASTURE.z0 - pad && z < PASTURE.z1 + pad;
@@ -1412,7 +1437,7 @@ function buildCozyProps() {
   COLL_CIRC.push([-6, 17.6, .95]);
   const stumpTop = canvasTex(128, 128, (g) => { g.fillStyle = '#d9b07a'; g.fillRect(0, 0, 128, 128); g.strokeStyle = 'rgba(120,70,30,.55)'; g.lineWidth = 3; for (let r = 7; r < 64; r += 9) { g.beginPath(); g.arc(64, 64, r, 0, 6.3); g.stroke(); } });
   const bark = std(0x6b4a2b, .9), topM = std(0xffffff, .8, 0, { map: stumpTop });
-  for (const [x, z] of [[-4.2, 18.7], [-7.9, 16.5], [-6.4, 19.8], [-4.3, 16.8], [11.6, 19.6], [-24.6, 3.6], [5.6, 16.2]]) {
+  for (const [x, z] of [[-4.2, 18.7], [-7.9, 16.5], [-6.4, 19.8], [-4.3, 16.8], [11.6, 19.6], [-25.2, -1.6], [5.6, 16.2]]) {
     const s = rr(.9, 1.2), y = terrainH(x, z);
     add(scene, new THREE.CylinderGeometry(.42 * s, .5 * s, .55 * s, 18), [bark, topM, bark], x, y + .27 * s, z);
     COLL_CIRC.push([x, z, .45 * s]);
@@ -1450,14 +1475,14 @@ function buildCottage(x, z, rot, wallC, roofC, doorC, sign) {
   return { g, door: g.localToWorld(new THREE.Vector3(-1.2, 0, 3.2)) };
 }
 function buildVillage() {
-  VILLAGE.padaria = buildCottage(48, 15.5, 0, 0xf4e1c1, 0xb8573a, 0x7a4a22, 'PADARIA');
-  VILLAGE.neide = buildCottage(57, 19, -.2, 0xd8e6f2, 0x4a6fa5, 0x2f4f7a);
-  VILLAGE.cida = buildCottage(64.5, 22.5, -.3, 0xf6d3c4, 0x5f8f4a, 0x8a3b2a);
+  VILLAGE.padaria = buildCottage(...VILLAGE_POS.padaria, 0xf4e1c1, 0xb8573a, 0x7a4a22, 'PADARIA');
+  VILLAGE.neide = buildCottage(...VILLAGE_POS.neide, 0xd8e6f2, 0x4a6fa5, 0x2f4f7a);
+  VILLAGE.cida = buildCottage(...VILLAGE_POS.cida, 0xf6d3c4, 0x5f8f4a, 0x8a3b2a);
   for (const [x, z] of [[44, 24.2], [52, 27.8], [60, 30.3], [36.5, 22.8]]) buildLamp(x, z);
   const bench = new THREE.Group(), w = std(0xffffff, .8, 0, { map: texRep(woodTex, 1, 1), color: 0xc9925a });
   add(bench, rbox(1.8, .1, .5, .03), w, 0, .5, 0); add(bench, rbox(1.8, .5, .08, .03), w, 0, .8, -.22);
   for (const x of [-.75, .75]) add(bench, rbox(.1, .5, .45, .03), w, x, .25, 0);
-  bench.position.set(52.5, terrainH(52.5, 22.3), 22.3); bench.rotation.y = .3; scene.add(bench); COLL_CIRC.push([52.5, 22.3, .9]);
+  bench.position.set(53, terrainH(53, 19.6), 19.6); bench.rotation.y = .3 + Math.PI; scene.add(bench); COLL_CIRC.push([53, 19.6, .9]);
 }
 buildBarn(); buildHouse(); buildSilo(); buildWindmill(); buildMarket(); buildWell(); buildFences(); buildCoop(); buildClothesline(); buildNeighbor(); buildArchAndBridge(); buildProps(); buildCozyProps(); buildVillage();
 marketGroup.updateMatrixWorld(true); barnGroup.updateMatrixWorld(true);
@@ -1836,13 +1861,13 @@ function makeDuckLive(v = 0) {
 ===================================================================== */
 const PACK = { ready: false, src: {} };
 const PACK_BIRDS = new Set(['hen', 'rooster', 'chick', 'duck', 'goose', 'turkey']);
-const PACK_TAIL = new Set(['vaca', 'cow', 'black_cow', 'calf', 'horse', 'pony', 'donkey', 'goat', 'pig', 'piglet']);
+const PACK_TAIL = new Set(['vaca', 'porco', 'cow', 'black_cow', 'calf', 'horse', 'pony', 'donkey', 'goat', 'pig', 'piglet']);
 const PACK_SKIP_TINT = new Set(['dark', 'nose', 'beak', 'pink', 'red', 'cow_b', 'eye', 'eyes', 'black']);
-// vaquinha nova (Meshy): vem olhando na diagonal e centrada no meio do corpo; gira para olhar +Z e assenta a base no chão,
-// como os bichos do pacote (o vertex shader que dobra patas, cabeça e rabo usa essas coordenadas)
-const VACA_YAW = .799;
-function fixVaca(sc) {
-  const R = new THREE.Matrix4().makeRotationY(VACA_YAW);
+// bichos novos (Meshy): vêm centrados no meio do corpo (a vaquinha também olhando na diagonal); gira para olhar +Z e assenta
+// a base no chão, como os bichos do pacote (o vertex shader que dobra patas, cabeça e rabo usa essas coordenadas)
+const MESHY_YAW = { vaca: .799, porco: 0 };
+function fixMeshy(sc, k) {
+  const R = new THREE.Matrix4().makeRotationY(MESHY_YAW[k] || 0);
   sc.updateMatrixWorld(true);
   sc.traverse(o => { if (o.isMesh) { o.geometry = o.geometry.clone(); o.geometry.applyMatrix4(o.matrixWorld); o.geometry.applyMatrix4(R); o.position.set(0, 0, 0); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1); } });
   sc.traverse(o => { if (!o.isMesh && o !== sc) { o.position.set(0, 0, 0); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1); } });
@@ -1852,13 +1877,13 @@ function fixVaca(sc) {
   sc.updateMatrixWorld(true);
 }
 function loadAnimalPack() {
-  const all = { ...(window.ANIMAIS_GLB || {}), ...(window.VACA_GLB ? { vaca: window.VACA_GLB } : {}) }; if (!Object.keys(all).length) return;
+  const all = { ...(window.ANIMAIS_GLB || {}), ...(window.VACA_GLB ? { vaca: window.VACA_GLB } : {}), ...(window.PORCO_GLB ? { porco: window.PORCO_GLB } : {}) }; if (!Object.keys(all).length) return;
   const L = new GLTFLoader();
   Promise.all(Object.entries(all).map(([k, b64]) => new Promise(res => {
     const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     L.parse(u.buffer, '', g => res([k, g.scene]), () => res([k, null]));
   }))).then(list => {
-    for (const [k, sc] of list) if (sc) { if (k === 'vaca') fixVaca(sc); sc.updateMatrixWorld(true); PACK.src[k] = { sc, box: new THREE.Box3().setFromObject(sc) }; }
+    for (const [k, sc] of list) if (sc) { if (k in MESHY_YAW) fixMeshy(sc, k); sc.updateMatrixWorld(true); PACK.src[k] = { sc, box: new THREE.Box3().setFromObject(sc) }; }
     PACK.ready = true; onPackReady();
   });
 }
@@ -1911,7 +1936,7 @@ function makePackAnimal(key, o = {}) {
     c.castShadow = true; c.receiveShadow = true; c.userData.sharedGeo = true;
     c.material = packMaterial(c.material, U);
     const nm = (c.material.name || '').toLowerCase();
-    if (o.tint && key !== 'vaca' && !PACK_SKIP_TINT.has(nm)) { const t = o.tint[nm] ?? o.tint['*']; if (t !== undefined) c.material.color.setHex(t); }
+    if (o.tint && !(key in MESHY_YAW) && !PACK_SKIP_TINT.has(nm)) { const t = o.tint[nm] ?? o.tint['*']; if (t !== undefined) c.material.color.setHex(t); }
   });
   const px = () => new THREE.Object3D();
   return { g, head: px(), legs: o.legs === 0 ? [] : bird ? [px(), px()] : [px(), px(), px(), px()], tail: PACK_TAIL.has(key) ? px() : null, wings: bird ? [px(), px()] : null, eyes: null, pack: U };
@@ -1966,7 +1991,7 @@ function updateAmbientAnimals(dt, t) {
 }
 /* ---- enfeites do pacote: cocho de feno, poça de lama, ninhos, cesta de ovos, casinha do cachorro ---- */
 const PACK_PROPS = [['hay_feeder', 1.6, -12.8, -27.2, .2, 1.1], ['mud_puddle', 2.4, -3.6, -26.4, .7, 0], ['nesting_box', 1.7, -15.4, 16.6, 2.6, .7], ['egg_basket', 1.3, -10.6, 21.4, .4, .45],
-  ['dog_house', 1.45, -14.6, 6.1, Math.PI / 2, .75], ['hay_feeder', 1.4, -26, -49.5, .6, 1]];
+  ['dog_house', 1.45, -13.6, 6.9, Math.PI / 2, .75], ['hay_feeder', 1.4, -26, -49.5, .6, 1]];
 function buildPackProps() {
   for (const [k, sc, x, z, ry, coll] of PACK_PROPS) {
     const P = PACK.src[k]; if (!P) continue;
@@ -1978,7 +2003,7 @@ function buildPackProps() {
 }
 function onPackReady() {
   rebuildAnimals();
-  for (const a of ambientGd) if (a.mk && a.mk.vaca && PACK.src.vaca) {   // troca o bezerro antigo pela vaquinha nova
+  for (const a of ambientGd) if (a.mk && a.mk.meshy && PACK.src[a.mk.meshy]) {   // troca o bezerro e o leitão antigos pelos bichos novos
     const Pp = a.mk(), m = Pp.g; m.position.copy(a.m.position); m.rotation.y = a.m.rotation.y; scene.remove(a.m); disposeTree(a.m); scene.add(m); a.m = m; a.parts = Pp;
   }
   buildAmbientAnimals(); buildPackProps();
@@ -2236,7 +2261,7 @@ const LP = {
     return lpBird({ len: .46, h: .28, w: .3, hip: .1, duck: true, neck: .2, headR: .085, col: C });
   }
 };
-const GAME_LP = { galinha: (v, a) => (a && a.id % 4 === 1 ? LP.rooster() : LP.hen(v)), vaca: v => (PACK.src.vaca && makePackAnimal('vaca', { h: 1.55 })) || LP.cow(v), ovelha: v => LP.sheep(v), porco: v => LP.pig(v), cabra: v => LP.goat(v), pato: v => LP.duck(v) };
+const GAME_LP = { galinha: (v, a) => (a && a.id % 4 === 1 ? LP.rooster() : LP.hen(v)), vaca: v => (PACK.src.vaca && makePackAnimal('vaca', { h: 1.55 })) || LP.cow(v), ovelha: v => LP.sheep(v), porco: v => (PACK.src.porco && makePackAnimal('porco', { h: .95 })) || LP.pig(v), cabra: v => LP.goat(v), pato: v => LP.duck(v) };
 // patos da lagoa com o modelo novo (só o corpo aparece na água)
 for (const [i, d] of ducks.entries()) {
   const P = LP.duck(i === 0 ? 0 : i === 1 ? 2 : 0); for (const l of P.legs) l.visible = false;
@@ -2345,7 +2370,7 @@ function hayStack(x, z, rot, n) {
   for (let i = 0; i < n; i++) put(...layout[i]);
   G.add(R.mesh(lpMat)); COLL_CIRC.push([x, z, 1.3]);
 }
-for (const [x, z, r, n] of [[-19, -20.5, .3, 4], [-19.2, -24.5, 1.4, 3], [-27, -14.5, .8, 5], [5.2, 18.4, .2, 3], [-26.5, 1, 2.2, 2]]) hayStack(x, z, r, n);
+for (const [x, z, r, n] of [[-19, -20.5, .3, 4], [-19.2, -24.5, 1.4, 3], [-27, -14.5, .8, 5], [5.2, 18.4, .2, 3], [-31.5, -7.5, 2.2, 2]]) hayStack(x, z, r, n);
 // árvores secas, tocos, troncos caídos e arbustos espalhados
 {
   const ok = (x, z, pad) => !(inField(x, z, 4) || blocked(x, z, pad) || pathDist(x, z) < 3 || creekDist(x, z) < 4.5 || inPasture(x, z, 3) || Math.hypot(x - 55, z - 20) < 20 || Math.hypot(x - 36.8, z + 60) < 8);
@@ -2441,8 +2466,8 @@ function buildGdAmbient() {
   const defs = [[() => LP.horse(0), pc.x, pc.z, 5.5], [() => LP.horse(1), pc.x, pc.z, 5.5], [() => LP.horse(2), pc.x, pc.z, 5.5], [() => LP.horse(3), pc.x, pc.z, 5.5],
     [() => { const h = LP.horse(4); h.g.scale.setScalar(.62); return h; }, pc.x, pc.z, 5],
     [() => LP.horse(1), -27, -47, 4.5], [() => LP.donkey(), -29, -44, 4.5],
-    [Object.assign(() => (PACK.src.vaca && makePackAnimal('vaca', { h: .9 })) || (c => (c.g.scale.setScalar(.55), c))(LP.cow(2)), { vaca: true }), -8.5, -22.5, 5.5], [() => { const s = LP.sheep(0); s.g.scale.setScalar(.6); return s; }, -9, -21, 5.5],
-    [() => { const p = LP.pig(0); p.g.scale.setScalar(.5); return p; }, -4.5, -26, 3], [() => LP.chick(), -13, 18.5, 2.6], [() => LP.chick(), -12.5, 19.5, 2.6], [() => LP.chick(), -13.5, 19, 2.6],
+    [Object.assign(() => (PACK.src.vaca && makePackAnimal('vaca', { h: .9 })) || (c => (c.g.scale.setScalar(.55), c))(LP.cow(2)), { meshy: 'vaca' }), -8.5, -22.5, 5.5], [() => { const s = LP.sheep(0); s.g.scale.setScalar(.6); return s; }, -9, -21, 5.5],
+    [Object.assign(() => (PACK.src.porco && makePackAnimal('porco', { h: .55 })) || (p => (p.g.scale.setScalar(.5), p))(LP.pig(0)), { meshy: 'porco' }), -4.5, -26, 3], [() => LP.chick(), -13, 18.5, 2.6], [() => LP.chick(), -12.5, 19.5, 2.6], [() => LP.chick(), -13.5, 19, 2.6],
     [() => LP.duck(0), 27, -3.4, 3.5], [() => LP.duck(1), 26, -2, 3.5]];
   for (const [mk, cx, cz, r] of defs) {
     const Pp = mk(), m = Pp.g; m.position.set(cx + rand(-r, r) * .6, 0, cz + rand(-r, r) * .6); m.rotation.y = rand(0, 6); scene.add(m);
@@ -2949,7 +2974,9 @@ const PRODUCTS = {
   suco: { name: 'Suco', price: 26, cap: 60, xp: 2 },
   mel: { name: 'Mel', price: 48, cap: 50, xp: 3 },
   fruta: { name: 'Fruta', price: 9, cap: 150, xp: 1 },
-  morango: { name: 'Morango', price: 11, cap: 150, xp: 1 }
+  morango: { name: 'Morango', price: 11, cap: 150, xp: 1 },
+  cogumelo: { name: 'Cogumelo', price: 22, cap: 60, xp: 2 },
+  pinhao: { name: 'Pinhão', price: 12, cap: 90, xp: 1 }
 };
 const PROD_KEYS = Object.keys(PRODUCTS);
 const LIVE = {
@@ -3097,6 +3124,7 @@ function audioInit() {
   for (const hz of [28, 1.6]) { const am = G(.5), l = C.createOscillator(); l.type = 'square'; l.frequency.value = hz; l.connect(G(.5)).connect(am.gain); node.connect(am); node = am; l.start(); }
   node.connect(A.crick).connect(A.ambIn); cr.start();
   if (A.muted) C.suspend(); else if (C.state !== 'running') C.resume();
+  loadSounds();
   if (mode === 'play') musicStart();
 }
 function setVol(k, v) { A.vol[k] = v; saveAudio(); if (!A.ctx || (k === 'master' && A.muted)) return; (k === 'master' ? A.master : A.bus[k]).gain.setTargetAtTime(v, aNow(), .05); }
@@ -3160,7 +3188,8 @@ const musicPhase = () => { if (rainLevel > .5) return 'rain'; const t = S.tod; r
 const M = { on: 0, step: 0, bar: 0, next: 0, ph: 'day', mel: 3, id: 0 };
 function musicStart() {
   if (!A.ctx || M.on) return; M.on = 1; M.step = M.bar = 0; M.next = aNow() + .1;
-  A.musicIn.gain.setTargetAtTime(A.duckLvl, aNow(), 1.2); M.id = setInterval(musicTick, 25);
+  A.musicIn.gain.setTargetAtTime(A.duckLvl, aNow(), 1.2);
+  if (!(SND.ready && SND.buf.musica_dia)) M.id = setInterval(musicTick, 25);
 }
 function musicTick() {
   const C = A.ctx; if (C.state !== 'running') return;
@@ -3185,9 +3214,10 @@ function spatial(x, z) {
 }
 function birdCall(x, z) { const sp = spatial(x, z), b = rand(2400, 4200), n = 2 + (Math.random() * 4 | 0);
   for (let i = 0, t = aNow(); i < n; i++, t += rand(.08, .17)) tone({ t, f: b * rand(.9, 1.1), f2: b * rand(1.15, 1.6), fm: rand(25, 60), fmi: .05, d: rand(.04, .09), vol: .045 * sp.vol, bus: A.ambIn, pan: sp.pan }); }
-function cluck(x, z) { const sp = spatial(x, z), n = 2 + (Math.random() * 3 | 0);
+function cluck(x, z) { if (playSnd('galinha', { x, z, bus: A.ambIn, vol: 1.1 })) return; const sp = spatial(x, z), n = 2 + (Math.random() * 3 | 0);
   for (let i = 0, t = aNow(); i < n; i++, t += rand(.09, .15)) tone({ t, type: 'square', f: rand(600, 800), f2: rand(420, 520), d: .05, lp: 1600, vol: .05 * sp.vol, bus: A.ambIn, pan: sp.pan }); }
 function moo(x, z) {
+  if (playSnd('vaca', { x, z, bus: A.ambIn, vol: 1.3 })) return;
   const sp = spatial(x, z), t = aNow(), C = A.ctx, o = C.createOscillator(), f = C.createBiquadFilter(), g = C.createGain(), p = rand(.9, 1.1);
   o.type = 'sawtooth'; o.frequency.setValueAtTime(120 * p, t); o.frequency.linearRampToValueAtTime(100 * p, t + 1.3);
   f.type = 'bandpass'; f.Q.value = 3; f.frequency.setValueAtTime(250, t); f.frequency.linearRampToValueAtTime(900, t + .45); f.frequency.linearRampToValueAtTime(350, t + 1.3);
@@ -3196,13 +3226,63 @@ function moo(x, z) {
 }
 function creak(x, z) { const sp = spatial(x, z), n = 6 + (Math.random() * 7 | 0), f = rand(650, 950);
   for (let i = 0, t = aNow(); i < n; i++, t += rand(.018, .035)) noiseHit({ t, f: f * rand(.97, 1.03), q: 14, d: .014, vol: .35 * sp.vol, bus: A.ambIn, pan: sp.pan }); }
+/* ---- sons gravados (ElevenLabs): música de dia e de noite, vozes dos bichos, pássaros, grilos e alguns efeitos.
+   Sem o arquivo sons/sons.js (ou antes de decodificar), tudo continua com os sons sintetizados. ---- */
+const SND = { ready: false, loading: false, buf: {} };
+// ganho por som: os arquivos vieram com volumes bem diferentes (medidos com o ffmpeg)
+const SND_GAIN = { passo_terra: 2.2, passo_tabua: .8, chuva: 1, trovao: .6, morador_m: .45, morador_f: .3, coleta: 6, vaca: .32, porco: 1.1, galinha: .8, galo: .37, ovelha: .56, cabra: .73, pato: .48, moedas: .9, regar: .7, colher: 2.4, plantar: 4, conquista: .45 };
+function loadSounds() {
+  const all = window.SONS; if (!all || !A.ctx || SND.loading) return; SND.loading = true;
+  Promise.all(Object.entries(all).map(([k, b64]) => {
+    const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return A.ctx.decodeAudioData(u.buffer).then(b => { SND.buf[k] = b; }, () => {});
+  })).then(() => {
+    SND.ready = true; startAmbLoops();
+    if (M.on && M.id && SND.buf.musica_dia) { clearInterval(M.id); M.id = 0; }   // troca a música sintetizada pela gravada
+  });
+}
+function playSnd(k, o = {}) {
+  const b = SND.buf[k]; if (!b || !A.ctx || A.ctx.state !== 'running') return false;
+  const C = A.ctx, src = C.createBufferSource(), g = C.createGain(); src.buffer = b; src.playbackRate.value = o.rate ?? rand(.94, 1.06);
+  let v = (o.vol ?? 1) * (SND_GAIN[k] ?? 1), pan = 0;
+  if (o.x !== undefined) { const sp = spatial(o.x, o.z); v *= Math.max(sp.vol, o.min ?? .15); pan = sp.pan; }
+  g.gain.value = v; out(src.connect(g), o.bus || A.bus.sfx, pan); src.start(aNow()); return true;
+}
+function startAmbLoops() {
+  for (const k of ['passaros', 'grilos', 'chuva']) {
+    const b = SND.buf[k]; if (!b || SND[k]) continue;
+    const src = A.ctx.createBufferSource(), g = A.ctx.createGain(); src.buffer = b; src.loop = true; g.gain.value = 0; src.connect(g).connect(A.ambIn); src.start(); SND[k] = g;
+  }
+}
+// música gravada: as duas faixas tocam juntas e o volume de cada uma segue o dia e a noite;
+// cada faixa recomeça com 4 s de cruzamento, para a emenda do loop não pular
+const SMUS = { g: {}, next: {} };
+function sampleMusicUpdate() {
+  if (!SND.ready || !SND.buf.musica_dia || !M.on || M.id) return;
+  const C = A.ctx, t = aNow(), n = smooth(night, .3, .8);
+  for (const [k, w] of [['musica_dia', (1 - n) * .6], ['musica_noite', n * .36]]) {
+    const b = SND.buf[k]; if (!b) continue;
+    if (!SMUS.g[k]) { SMUS.g[k] = C.createGain(); SMUS.g[k].gain.value = w; SMUS.g[k].connect(A.musicIn); SMUS.next[k] = 0; }
+    SMUS.g[k].gain.setTargetAtTime(w, t, 2);
+    if (t >= SMUS.next[k] - .4) {
+      const st = Math.max(t + .05, SMUS.next[k]), src = C.createBufferSource(), fg = C.createGain(), d = b.duration; src.buffer = b;
+      fg.gain.setValueAtTime(0, st); fg.gain.linearRampToValueAtTime(1, st + 3); fg.gain.setValueAtTime(1, st + d - 4); fg.gain.linearRampToValueAtTime(0, st + d);
+      src.connect(fg).connect(SMUS.g[k]); src.start(st); src.stop(st + d + .05);
+      SMUS.next[k] = st + d - 4;
+    }
+  }
+}
 function audioUpdate(rdt) {
   if (!A.ctx || A.ctx.state !== 'running' || (AMB.t -= rdt) > 0) return; AMB.t = .25;
   const t = aNow(), day = 1 - night, dry = 1 - rainLevel, tick = k => (AMB[k] -= .25) <= 0;
   A.wind.g.gain.setTargetAtTime(.05 + .05 * night + .08 * rainLevel + .03 * Math.random(), t, .8);
   A.wind.fl.frequency.setTargetAtTime(300 + 250 * Math.random(), t, 1.5);
-  A.rain.g.gain.setTargetAtTime(.22 * rainLevel ** 1.5, t, .5);
-  A.crick.gain.setTargetAtTime(.018 * smooth(night, .5, .9) * (1 - .8 * rainLevel), t, 1);
+  A.rain.g.gain.setTargetAtTime(SND.chuva ? 0 : .22 * rainLevel ** 1.5, t, .5);
+  if (SND.chuva) SND.chuva.gain.setTargetAtTime(5.5 * rainLevel ** 1.2, t, .8);
+  A.crick.gain.setTargetAtTime(SND.grilos ? 0 : .018 * smooth(night, .5, .9) * (1 - .8 * rainLevel), t, 1);
+  if (SND.passaros) SND.passaros.gain.setTargetAtTime(4.5 * smooth(day, .4, .9) * dry, t, 1.5);
+  if (SND.grilos) SND.grilos.gain.setTargetAtTime(2.6 * smooth(night, .5, .9) * (1 - .8 * rainLevel), t, 1.5);
+  sampleMusicUpdate();
   if (mode !== 'play' || S.paused || modal === 'menu') return;
   if (tick('bird')) { AMB.bird = rand(2, 7); if (Math.random() < day * dry) birdCall(rand(-35, 35), rand(-35, 35)); }
   if (tick('hen')) { AMB.hen = rand(5, 12); if (day > .5 && S.animals.some(a => a.type === 'galinha')) cluck(-13, 18.5); }
@@ -3216,15 +3296,16 @@ const safe = fn => (...a) => { if (A.ctx && !A.muted && A.ctx.state === 'running
 const HARV = { trigo: 74, cenoura: 76, milho: 78, tomate: 81, abobora: 69 };
 let sellAcc = 0, hoverT = 0, harvCombo = 0, harvComboT = 0;
 function coins(total) {
+  if (playSnd('moedas', { vol: total >= 500 ? 1.25 : .9 })) { if (total >= 500) { duckPulse(1.2); pad([74, 78, 81, 86].map(mf), aNow() + .2, 1.2, .03, A.bus.sfx); } return; }
   const n = clamp(Math.round(Math.log2(total + 1) - 1), 1, 8), t0 = aNow();
   for (let i = 0; i < n; i++) { const f = mf(86 + [0, 2, 4, 7, 9, 12, 14, 16][i]), t = t0 + i * .055; tone({ f, t, d: .28, vol: .07 }); tone({ f: f * 2.76, t, d: .09, vol: .03 }); }
   if (total >= 500) { duckPulse(1.2); pad([74, 78, 81, 86].map(mf), t0 + n * .055, 1.2, .03, A.bus.sfx); }
 }
 const sfx = {
-  plant: safe(() => { const p = rand(.92, 1.08); noiseHit({ f: 500 * p, ft: 'lowpass', d: .08, vol: .3 }); tone({ f: 150 * p, f2: 70, d: .09, vol: .25 }); }),
-  water: safe(() => { noiseHit({ f: 1200, f2: 3200, q: 1.5, a: .04, d: .32, vol: .12 });
+  plant: safe(() => { playSnd('plantar'); const p = rand(.92, 1.08); noiseHit({ f: 500 * p, ft: 'lowpass', d: .08, vol: .3 }); tone({ f: 150 * p, f2: 70, d: .09, vol: .25 }); }),
+  water: safe(() => { if (playSnd('regar')) return; noiseHit({ f: 1200, f2: 3200, q: 1.5, a: .04, d: .32, vol: .12 });
     for (let i = 0, t = aNow() + .05; i < 4; i++, t += rand(.05, .09)) tone({ t, f: rand(1400, 2400), f2: rand(700, 1000), d: .05, vol: .04 }); }),
-  harvest: safe(k => { const now = performance.now(); harvCombo = now - harvComboT < 450 ? harvCombo + 1 : 0; harvComboT = now;
+  harvest: safe(k => { playSnd('colher', { vol: .9 }); const now = performance.now(); harvCombo = now - harvComboT < 450 ? harvCombo + 1 : 0; harvComboT = now;
     const m = (HARV[k] ?? 76) + Math.min(harvCombo, 7) * [0, 2, 4, 7, 9, 12, 14, 16][Math.min(harvCombo, 7)] / Math.max(harvCombo, 1), t = aNow();
     noiseHit({ f: 1500, f2: 600, d: .05, vol: .15 }); pluck(mf(m), t, .3, A.bus.sfx); pluck(mf(m + 7), t + .07, .25, A.bus.sfx);
     if (k === 'abobora') tone({ f: 95, f2: 50, d: .16, vol: .3 }); if (k === 'trigo') noiseHit({ f: 4500, ft: 'highpass', a: .02, d: .18, vol: .05 }); }),
@@ -3234,20 +3315,20 @@ const sfx = {
   upgrade: safe(() => { [62, 66, 69, 74, 78].forEach((m, i) => pluck(mf(m), aNow() + i * .05, .2, A.bus.sfx));
     for (let i = 0; i < 6; i++) tone({ t: aNow() + .25 + i * .04, f: rand(4000, 6000), d: .08, vol: .02 }); }),
   goal: safe(() => { duckPulse(1.8); [74, 78, 81, 86].forEach((m, i) => mallet(mf(m), aNow() + i * .1, .12, A.bus.sfx)); pad([62, 66, 69, 74].map(mf), aNow() + .3, 1.6, .035, A.bus.sfx); }),
-  level: safe(() => { duckPulse(2.2); [62, 66, 69, 74, 78, 81, 86].forEach((m, i) => mallet(mf(m), aNow() + i * .07, .11, A.bus.sfx)); pad([62, 69, 74, 78].map(mf), aNow() + .4, 2, .04, A.bus.sfx); }),
+  level: safe(() => { playSnd('conquista', { rate: 1 }); duckPulse(2.2); [62, 66, 69, 74, 78, 81, 86].forEach((m, i) => mallet(mf(m), aNow() + i * .07, .11, A.bus.sfx)); pad([62, 69, 74, 78].map(mf), aNow() + .4, 2, .04, A.bus.sfx); }),
   tut: safe(() => { mallet(mf(81), aNow(), .07, A.bus.sfx); mallet(mf(86), aNow() + .09, .07, A.bus.sfx); }),
   bad: safe(() => { tone({ f: mf(64), d: .12, vol: .09, type: 'triangle', lp: 1500 }); tone({ t: aNow() + .1, f: mf(61), d: .16, vol: .08, type: 'triangle', lp: 1500 }); }),
   ui: safe(() => { noiseHit({ f: 2600, q: 4, d: .02, vol: .08 }); tone({ f: 1100, d: .03, vol: .025 }); }),
   hover: safe(() => { const t = performance.now(); if (t - hoverT < 60) return; hoverT = t; tone({ f: 1800, d: .015, vol: .012 }); }),
-  step: safe(onBed => noiseHit({ f: onBed ? rand(350, 500) : rand(600, 900), ft: 'lowpass', q: .8, d: .05, vol: onBed ? .07 : .045 })),
+  step: safe(onBed => playSnd(!onBed && onPlank(AV.pos.x, AV.pos.z) ? 'passo_tabua' : 'passo_terra', { vol: .55, rate: rand(.9, 1.12) }) || noiseHit({ f: onBed ? rand(350, 500) : rand(600, 900), ft: 'lowpass', q: .8, d: .05, vol: onBed ? .07 : .045 })),
   open: safe(() => noiseHit({ f: 400, f2: 1500, q: 1.2, a: .03, d: .18, vol: .06 })),
   close: safe(() => noiseHit({ f: 1500, f2: 400, q: 1.2, a: .02, d: .16, vol: .05 })),
   speed: safe((v, paused) => { if (paused) return tone({ f: 660, f2: 440, d: .12, vol: .05, type: 'triangle' });
     for (let i = 0; i < (v === 4 ? 3 : v); i++) tone({ t: aNow() + i * .05, f: 900 + i * 300, d: .03, vol: .04 }); }),
-  thunder: safe((dist = 1) => { const t = aNow() + rand(.3, 1.5);
+  thunder: safe((dist = 1) => { if (playSnd('trovao', { vol: 1.4 / dist, rate: rand(.85, 1.05) })) return; const t = aNow() + rand(.3, 1.5);
     noiseHit({ t, f: 3000, ft: 'highpass', d: .08, vol: .15 / dist, bus: A.ambIn });
     noiseHit({ t, a: .08, f: 400, f2: 60, ft: 'lowpass', q: .7, d: 3.5, vol: .7 / dist, bus: A.ambIn }); }),
-  rooster: safe(() => { const sp = spatial(-13, 18.5), C = A.ctx, t = aNow(), o = C.createOscillator(), g = C.createGain(), mix = C.createGain();
+  rooster: safe(() => { if (playSnd('galo', { x: -13, z: 18.5, bus: A.ambIn, vol: 1.2, min: .35, rate: 1 })) return; const sp = spatial(-13, 18.5), C = A.ctx, t = aNow(), o = C.createOscillator(), g = C.createGain(), mix = C.createGain();
     const f1 = C.createBiquadFilter(), f2 = C.createBiquadFilter(), vib = C.createOscillator(), vg = C.createGain();
     o.type = 'sawtooth'; o.frequency.setValueAtTime(500, t); o.frequency.linearRampToValueAtTime(700, t + .12); o.frequency.setValueAtTime(650, t + .16);
     o.frequency.linearRampToValueAtTime(900, t + .32); o.frequency.linearRampToValueAtTime(600, t + .9);
@@ -3403,6 +3484,8 @@ function sellProd(k, qty) {
 }
 const svg = inner => `<svg class="ic" viewBox="0 0 32 32" aria-hidden="true">${inner}</svg>`;
 const PICONS = {
+  cogumelo: svg('<rect x="13" y="15" width="6" height="11" rx="2.5" fill="#f3ead8" stroke="#c9b48a"/><path d="M5 17c0-7 5-11 11-11s11 4 11 11z" fill="#c8452f"/><circle cx="11" cy="12" r="1.6" fill="#fff"/><circle cx="19" cy="10" r="1.4" fill="#fff"/><circle cx="21" cy="14.5" r="1.2" fill="#fff"/>'),
+  pinhao: svg('<g fill="#9a5a2e" stroke="#5e3418" stroke-width="1.2"><path d="M8 9c4-2 7 2 7 9s-2 9-4 9-5-6-5-11 0-6 2-7z"/><path d="M18 7c4-1 6 3 6 10s-2 10-4 10-5-6-5-12 1-7 3-8z"/></g>'),
   ovo: svg('<ellipse cx="16" cy="17" rx="9" ry="12" fill="#f6efe0" stroke="#c9b48a" stroke-width="1.5"/>'),
   la: svg('<g fill="#f3efe6" stroke="#c9bfae" stroke-width="1.2"><circle cx="11" cy="18" r="7"/><circle cx="21" cy="18" r="7"/><circle cx="16" cy="12" r="7"/><circle cx="16" cy="21" r="6"/></g>'),
   leite: svg('<path d="M12 6h8v4l3 4v13a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2V14l3-4z" fill="#fff" stroke="#9fb7c9" stroke-width="1.5"/><rect x="9" y="17" width="14" height="5" fill="#5fa8d3"/>'),
@@ -4813,7 +4896,75 @@ const REGIONS = [
   { in: (x, z) => insideField(x, z), gates: [[0, 9.2, 0, 1], [-12.4, 0, -1, 0]] },
   { in: (x, z) => inPasture(x, z), gates: [[-5, -15, 0, 1]] }
 ];
+/* ---- caminho inteligente: grade de passagem do mundo (1 célula = .75 m) + busca A*.
+   Bloqueia o que já trava o personagem (colisões redondas, cercas e paredes), o lago e o riacho (menos a ponte).
+   É refeita sozinha quando aparecem colisões novas (obras, festa). ---- */
+const NAV = { c: .75, w: 0, h: 0, grid: null, sig: '' };
+function navBuild() {
+  const c = NAV.c, w = NAV.w = Math.ceil((WORLD.x1 - WORLD.x0) / c), h = NAV.h = Math.ceil((WORLD.z1 - WORLD.z0) / c), g = NAV.grid = new Uint8Array(w * h);
+  const cx = i => WORLD.x0 + (i + .5) * c, cz = j => WORLD.z0 + (j + .5) * c, pad = AV_R + .05;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {   // água: lago e riacho (a ponte passa)
+    const x = cx(i), z = cz(j);
+    if (Math.hypot((x - 24) / 9.1, (z + 9) / 6.7) < 1 || creekDist(x, z) < 1.7) { const [lx, lz] = bridgeLocal(x, z); if (!(Math.abs(lx) < BRIDGE.half + .6 && Math.abs(lz) < BRIDGE.w - .1)) g[j * w + i] = 1; }
+  }
+  for (const [x, z, r] of COLL_CIRC) {
+    const R = r + pad, i0 = Math.max(0, Math.floor((x - R - WORLD.x0) / c)), i1 = Math.min(w - 1, Math.floor((x + R - WORLD.x0) / c)), j0 = Math.max(0, Math.floor((z - R - WORLD.z0) / c)), j1 = Math.min(h - 1, Math.floor((z + R - WORLD.z0) / c));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(cx(i) - x, cz(j) - z) < R) g[j * w + i] = 1;
+  }
+  for (const [ax, az, bx, bz] of COLL_SEGS) {
+    const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / (c * .4)));
+    for (let k = 0; k <= n; k++) {
+      const x = ax + (bx - ax) * k / n, z = az + (bz - az) * k / n, R = pad, i0 = Math.max(0, Math.floor((x - R - WORLD.x0) / c)), i1 = Math.min(w - 1, Math.floor((x + R - WORLD.x0) / c)), j0 = Math.max(0, Math.floor((z - R - WORLD.z0) / c)), j1 = Math.min(h - 1, Math.floor((z + R - WORLD.z0) / c));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (segDist(cx(i), cz(j), ax, az, bx, bz) < R) g[j * w + i] = 1;
+    }
+  }
+  NAV.sig = COLL_CIRC.length + ':' + COLL_SEGS.length;
+}
+const navCell = (x, z) => [clamp(Math.floor((x - WORLD.x0) / NAV.c), 0, NAV.w - 1), clamp(Math.floor((z - WORLD.z0) / NAV.c), 0, NAV.h - 1)];
+function navFree(i, j) {   // célula livre mais perto (o destino pode estar dentro de um prédio ou de um canteiro com cerca)
+  const { w, h, grid: g } = NAV; if (!g[j * w + i]) return [i, j];
+  for (let r = 1; r < 14; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+    if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; const a = i + di, b = j + dj;
+    if (a >= 0 && b >= 0 && a < w && b < h && !g[b * w + a]) return [a, b];
+  }
+  return null;
+}
+function navLine(x0, z0, x1, z1) {   // dá para ir reto entre os dois pontos?
+  const L = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(L / (NAV.c * .35));
+  for (let k = 1; k < n; k++) { const [i, j] = navCell(x0 + (x1 - x0) * k / n, z0 + (z1 - z0) * k / n); if (NAV.grid[j * NAV.w + i]) return false; }
+  return true;
+}
+function navRoute(sx, sz, tx, tz) {
+  if (!NAV.grid || NAV.sig !== COLL_CIRC.length + ':' + COLL_SEGS.length) navBuild();
+  const { w, h, grid: g, c } = NAV, s0 = navFree(...navCell(sx, sz)), t0 = navFree(...navCell(tx, tz)); if (!s0 || !t0) return null;
+  const S0 = s0[1] * w + s0[0], T0 = t0[1] * w + t0[0];
+  if (S0 === T0 || navLine(sx, sz, tx, tz)) return [[tx, tz]];
+  const N = w * h, gs = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), shut = new Uint8Array(N), heap = [];
+  const hz = k => { const dx = Math.abs(k % w - t0[0]), dz = Math.abs(((k / w) | 0) - t0[1]); return Math.max(dx, dz) + .414 * Math.min(dx, dz); };
+  const push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  gs[S0] = 0; push(S0, hz(S0)); let it = 0, found = false;
+  while (heap.length && it++ < 90000) {
+    const [, k] = pop(); if (shut[k]) continue; shut[k] = 1; if (k === T0) { found = true; break; }
+    const ki = k % w, kj = (k / w) | 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue; const a = ki + di, b = kj + dj; if (a < 0 || b < 0 || a >= w || b >= h) continue;
+      const n2 = b * w + a; if (g[n2] || shut[n2]) continue;
+      if (di && dj && (g[kj * w + a] || g[b * w + ki])) continue;   // não corta quina
+      const ng = gs[k] + (di && dj ? 1.414 : 1); if (ng < gs[n2]) { gs[n2] = ng; from[n2] = k; push(n2, ng + hz(n2)); }
+    }
+  }
+  if (!found) return null;
+  const cells = []; for (let k = T0; k !== -1; k = from[k]) cells.push([WORLD.x0 + (k % w + .5) * c, WORLD.z0 + (((k / w) | 0) + .5) * c]);
+  cells.reverse(); cells[cells.length - 1] = [tx, tz];
+  { const tc = navCell(tx, tz); if (tc[0] !== t0[0] || tc[1] !== t0[1]) cells[cells.length - 1] = [WORLD.x0 + (t0[0] + .5) * c, WORLD.z0 + (t0[1] + .5) * c]; }   // destino dentro de algo: para na beirada
+  // corta os zigue-zagues: de cada ponto, pula para o mais longe que dá para ver em linha reta
+  const out = []; let cx = sx, cz = sz, i = 0;
+  while (i < cells.length) { let j = cells.length - 1; while (j > i && !navLine(cx, cz, cells[j][0], cells[j][1])) j--; out.push(cells[j]); [cx, cz] = cells[j]; i = j + 1; }
+  return out;
+}
 function routeTo(x, z) {
+  { const r = navRoute(AV.pos.x, AV.pos.z, x, z); if (r) return r; }
   const pts = []; let cx = AV.pos.x, cz = AV.pos.z;
   const order = REGIONS.slice().sort((A, B) => (B.in(cx, cz) ? 1 : 0) - (A.in(cx, cz) ? 1 : 0));
   for (const R of order) {
@@ -4862,6 +5013,7 @@ function arrive() {
   if (j.kind === 'farm') { AV.job = null; faceTo(j.fx, j.fz); hubTab = 'loja'; openModal('farm'); refreshQMarks(); return; }
   if (j.ref && j.ref.isNpc) { AV.job = null; faceTo(j.ref.pos.x, j.ref.pos.z); refreshQMarks(); if (j.ref.isVisitor) { if (visitors.includes(j.ref)) openVisitor(j.ref); } else if (j.ref.m.root.visible) openNpc(j.ref); return; }
   if (j.ref) { faceTo(j.ref.m.position.x, j.ref.m.position.z); AV.act = { type: 'animal', ref: j.ref, dur: .8, key: .45, time: 0, fired: false }; return; }
+  if (j.kind === 'forage') { AV.job = null; faceTo(j.x, j.z); collectForage(j.f); refreshQMarks(); return; }
   if (!j.t) { AV.job = null; refreshQMarks(); return; }
   const act = j.act === 'buy' || j.act === 'place' ? j.act : planAction(j.t);
   faceTo(j.t.center.x, j.t.center.z);
@@ -4952,7 +5104,7 @@ function updateAvatar(dt, t) {
       if (!AV.job && AV.jobs.length) startJob();
       if (AV.path.length) {
         const [wx, wz] = AV.path[0], dx = wx - AV.pos.x, dz = wz - AV.pos.z, d = Math.hypot(dx, dz);
-        if (d < .3) { AV.path.shift(); if (!AV.path.length) arrive(); }
+        if (d < .3) { AV.path.shift(); AV.detour = 0; if (!AV.path.length) arrive(); }
         else { dirx = dx / d; dirz = dz / d; want = AV_SPEED * Math.min(1, d / .8 + .4); }
       } else if (AV.job) arrive();
     }
@@ -4963,7 +5115,16 @@ function updateAvatar(dt, t) {
   if (AV.path.length && want > 0) {
     const moved = Math.hypot(AV.pos.x - ox, AV.pos.z - oz);
     AV.stuck = moved < want * dt * .3 ? AV.stuck + dt : 0;
-    if (AV.stuck > .6) { AV.stuck = 0; AV.path.shift(); if (!AV.path.length) arrive(); }
+    if (AV.stuck > .35) {
+      AV.stuck = 0;
+      const [tx, tz] = AV.path[0], dl = Math.hypot(tx - AV.pos.x, tz - AV.pos.z) || 1, dx = (tx - AV.pos.x) / dl, dz = (tz - AV.pos.z) / dl;
+      let blk = null, bd = 1e9;
+      for (const C of COLL_CIRC) { const e = Math.hypot(C[0] - AV.pos.x, C[1] - AV.pos.z) - C[2]; if (e < .8 && e < bd && (C[0] - AV.pos.x) * dx + (C[1] - AV.pos.z) * dz > 0) { bd = e; blk = C; } }
+      if (blk && (AV.detour || 0) < 4 && dl > 1) {   // desvio pelo lado de fora do obstáculo
+        const vx = blk[0] - AV.pos.x, vz = blk[1] - AV.pos.z, side = vx * -dz + vz * dx > 0 ? -1 : 1, R = blk[2] + AV_R + .7;
+        AV.path.unshift([blk[0] + -dz * side * R + dx * .4, blk[1] + dx * side * R + dz * .4]); AV.detour = (AV.detour || 0) + 1;
+      } else { AV.detour = 0; AV.path.shift(); if (!AV.path.length) arrive(); }
+    }
   }
   for (const o of npcs) {
     if (!o.m.root.visible) continue;
@@ -5170,6 +5331,7 @@ function animalVoice(type, x, z) {
   if (!A.ctx || A.ctx.state !== 'running' || A.muted) return;
   try {
     const sp = spatial(x, z), v = Math.max(sp.vol, .5);
+    if ({ porco: 1, ovelha: 1, cabra: 1, pato: 1 }[type] && playSnd(type, { x, z, bus: A.ambIn, vol: 1.3 })) return;
     if (type === 'galinha') cluck(x, z);
     else if (type === 'vaca') moo(x, z);
     else if (type === 'ovelha') tone({ type: 'sawtooth', f: 340, f2: 300, fm: 7, fmi: .04, a: .05, d: .55, vol: .09 * v, lp: 1400, bus: A.ambIn, pan: sp.pan });
@@ -5440,6 +5602,7 @@ function updateNPCs(dt, t) {
   }
 }
 function openNpc(o) {
+  playSnd(o.d.id === 'tonico' || o.d.id === 'tonho' ? 'morador_m' : 'morador_f', { rate: rand(.95, 1.1) });
   talkNpc = o; o.talkT = 999; o.bubbleShow = 0; o.bub.classList.add('off');
   const f = S.npc[o.d.id];
   o.line = o.d.id === 'tonico' && S.nextRain === S.day + 1 && S.rainLeft <= 0 ? o.d.lines.rain : npcLine(o, f.h >= 6 && Math.random() < .5 ? 'talk' : 'hi');
@@ -6075,7 +6238,7 @@ function goToFarmShop() { const [x, z] = shopW(-.9, 3.6); clearJobs(); enqueue({
 const hoverMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .3, depthWrite: false, toneMapped: false });
 const hoverMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.05, 3.05).rotateX(-Math.PI / 2), hoverMat); hoverMesh.position.y = .45; hoverMesh.visible = false; scene.add(hoverMesh);
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-let hoverTile = null, hoverMarket = false, hoverBarn = false, hoverShop = false, hoverAnimal = null, hoverNpc = null, dragMode = null, lastAct = null, mode = 'start', lastPtr = null;
+let hoverForage = null, hoverTile = null, hoverMarket = false, hoverBarn = false, hoverShop = false, hoverAnimal = null, hoverNpc = null, dragMode = null, lastAct = null, mode = 'start', lastPtr = null;
 const pointers = new Map();
 const tipEl = $('#tip'), srEl = $('#sr');
 const HOVER_COL = { plant: 0x8fe06f, harvest: 0xf4c95d, water: 0x6fc4ff, buy: 0xf4c95d, place: 0x9fd6ff, growing: 0xffffff };
@@ -6084,8 +6247,8 @@ function pickAt(e) {
   const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const hit = ray.intersectObjects(tileHits, false).find(h => (!h.object.userData.npc || h.object.userData.npc.m.root.visible) && !(h.object.userData.tile && !tileActive(h.object.userData.tile)));
-  hoverTile = null; hoverMarket = false; hoverBarn = false; hoverShop = false; hoverAnimal = null; hoverNpc = null;
-  if (hit) { const u = hit.object.userData; if (u.npc) hoverNpc = u.npc; else if (u.animal) hoverAnimal = u.animal; else if (u.tile) hoverTile = u.tile; else if (u.market) hoverMarket = true; else if (u.upg) hoverBarn = true; else if (u.shop) hoverShop = true; }
+  hoverTile = null; hoverMarket = false; hoverBarn = false; hoverShop = false; hoverAnimal = null; hoverNpc = null; hoverForage = null;
+  if (hit) { const u = hit.object.userData; if (u.forage) hoverForage = u.forage; else if (u.npc) hoverNpc = u.npc; else if (u.animal) hoverAnimal = u.animal; else if (u.tile) hoverTile = u.tile; else if (u.market) hoverMarket = true; else if (u.upg) hoverBarn = true; else if (u.shop) hoverShop = true; }
 }
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 function groundPoint() { const p = new THREE.Vector3(); return ray.ray.intersectPlane(groundPlane, p) ? p : null; }
@@ -6120,7 +6283,10 @@ function updateHover(e) {
   if (mode !== 'play' || modal || intro) { hideTip(); return; }
   if (e) { lastPtr = { clientX: e.clientX, clientY: e.clientY }; pickAt(e); }
   if (!lastPtr) return;
-  if (hoverAnimal || hoverNpc) {
+  if (hoverForage) {
+    const o = hoverForage; tipEl.innerHTML = `<b>${o.name}</b><small>Clique para coletar · ${o.q} ${itemName(o.k).toLowerCase()}</small>`; tipEl.classList.remove('hidden');
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight; tipEl.style.left = Math.min(lastPtr.clientX + 16, innerWidth - w - 8) + 'px'; tipEl.style.top = Math.min(lastPtr.clientY + 18, innerHeight - h - 8) + 'px'; canvas.style.cursor = 'pointer';
+  } else if (hoverAnimal || hoverNpc) {
     hoverMesh.visible = false;
     const info = hoverNpc ? (hoverNpc.isVisitor ? { msg: hoverNpc.name, sub: `${hoverNpc.role} · ${hoverNpc.stateTxt} · Clique para conversar` } : { msg: hoverNpc.d.name, sub: `${hoverNpc.d.role} · ${heartStr(S.npc[hoverNpc.d.id].h)} · Clique para conversar` }) : animalInfo(hoverAnimal);
     tipEl.innerHTML = `<b>${info.msg}</b><small>${info.sub}</small>`; tipEl.classList.remove('hidden');
@@ -6158,6 +6324,7 @@ function goToShop(kind) {
 }
 function pressAt() {
   if (hoverNpc) { clearJobs(); enqueue({ kind: 'npc', ref: hoverNpc }); return; }
+  if (hoverForage) { const o = hoverForage; clearJobs(); enqueue({ kind: 'forage', x: o.x, z: o.z, f: o }); return; }
   if (hoverAnimal) { clearJobs(); enqueue({ kind: 'animal', ref: hoverAnimal }); return; }
   if (hoverMarket) { goToShop('market'); return; }
   if (hoverBarn) { goToShop('upg'); return; }
@@ -6165,7 +6332,7 @@ function pressAt() {
   lastAct = hoverTile; dragMode = null;
   if (hoverTile) { clickTile(hoverTile, false); return; }
   const p = groundPoint();
-  if (p && p.x > WORLD.x0 && p.x < WORLD.x1 && p.z > WORLD.z0 && p.z < WORLD.z1) { clearJobs(); enqueue({ kind: 'walk', x: p.x, z: p.z }); puff(V1.set(p.x, terrainH(p.x, p.z) + .15, p.z), 0xffffff, 8, 1.6, .4, .35); }
+  if (p && p.x > WORLD.x0 && p.x < WORLD.x1 && p.z > WORLD.z0 && p.z < WORLD.z1) minimapGo(p.x, p.z, true);
 }
 canvas.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), moved: false });
@@ -6297,6 +6464,7 @@ function newDay() {
   if (S.day >= S.nextRain && S.rainLeft <= 0 && !tut.active) { S.rainLeft = rand(30, 55); S.nextRain = S.day + 2 + ((Math.random() * 3) | 0); setTimeout(() => { toast('Rádio Vale: chuva chegando! São Pedro rega hoje.', 'radio', 3400); sfx.thunder(1); }, 5200); }
   econNewDay();
   festNewDay();
+  spawnForage();
   renderGoals(); if (modal === 'market' || modal === 'farm' || modal === 'fest') renderModal();
 }
 function growCrops(dt) {
@@ -6342,7 +6510,7 @@ function save() {
   if (mode !== 'play') return;
   try {
     const keep = ['avatar', 'npc', 'animals', 'pets', 'prod', 'psup', 'feed', 'nextId', 'money', 'day', 'tod', 'speed', 'selected', 'tutDone', 'rainLeft', 'nextRain', 'inv', 'mul', 'sup', 'hist', 'upg', 'spr', 'goals', 'orders', 'xp', 'level', 'dayEarn', 'dayHarv', 'stats',
-      'bld', 'areas', 'rep', 'farmLv', 'shop', 'sales', 'fin', 'proc', 'daily', 'special', 'notes', 'noteN', 'noteRead', 'repLoss', 'giants', 'fest'];
+      'bld', 'areas', 'rep', 'farmLv', 'shop', 'sales', 'fin', 'proc', 'daily', 'special', 'notes', 'noteN', 'noteRead', 'repLoss', 'giants', 'fest', 'forage'];
     const s = {}; for (const k of keep) s[k] = S[k];
     const data = { v: 2, S: s, tiles: tiles.map(t => ({ g: t.grid.id, i: t.i, j: t.j, u: t.unlocked, c: t.crop ? { type: t.crop.type, p: +t.crop.progress.toFixed(4), w: +t.crop.water.toFixed(3), g: t.crop.giant } : null })) };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -6385,7 +6553,7 @@ function startSession(fromSave) {
   placeNPCs();
   econSession();
   festSession();
-  applyTreeSeason(); mmDirty = true;
+  applyTreeSeason(); mmDirty = true; spawnForage();
   if (!S.avatar) { audioInit(); openCreator(true); return; }
   $('#start').classList.add('out'); setTimeout(() => $('#start').classList.add('hidden'), 700);
   controls.autoRotate = false;
@@ -6509,7 +6677,7 @@ function mmBuildBg() {
   g.fillStyle = '#a07a4a'; g.beginPath(); g.arc(X(CLEARING.x), Z(CLEARING.z), 5 * k, 0, 7); g.fill();
   box(SHOP.x, SHOP.z, 6, 4.4, SHOP.rot, '#d9a441', '#7a4a22');
   box(STABLE.x, STABLE.z, 7, 5, STABLE.rot, '#9b6a3a'); box(DEPOT.x, DEPOT.z, 4.5, 3.5, DEPOT.rot, '#9b6a3a');
-  for (const [x, z, rot, col] of [[48, 15.5, 0, '#b8573a'], [57, 19, -.2, '#4a6fa5'], [64.5, 22.5, -.3, '#5f8f4a']]) box(x, z, 7, 6, rot, col, '#f4e1c1');
+  for (const [k, col] of [['padaria', '#b8573a'], ['neide', '#4a6fa5'], ['cida', '#5f8f4a']]) { const [x, z, rot] = VILLAGE_POS[k]; box(x, z, 7, 6, rot, col, '#f4e1c1'); }
   g.fillStyle = '#e8e0d0'; g.beginPath(); g.arc(X(8), Z(-32), 1.6 * k, 0, 7); g.fill();
   const small = r.width < 160;   // no celular só os nomes principais, para não embolar
   label('Vila', 56, 10.5, true); label('Feira', FEIRA.x, 15.5); label('Celeiro', -27, -16.5); label('Pasto', -6.5, -26);
@@ -6517,7 +6685,7 @@ function mmBuildBg() {
   if (r.width > 400) {   // mapa ampliado: mais nomes
     label('Loja', SHOP.x + 1, SHOP.z - 4.5); label('Moinho', 8, -36); label('Silo', -31, -6); label('Haras', FARM2.x, FARM2.z - 15, true); label('Ponte', BRIDGE.x - 1, BRIDGE.z - 4);
     if (r.width > 680) { label('Estábulo', STABLE.x - 1, STABLE.z + 5); label('Depósito', DEPOT.x - 4, DEPOT.z + 4); } label('Riacho', 33, -40); label('Cachoeira', 37, -56);
-    label('Padaria', 48, 20.5); label('Clareira', CLEARING.x, CLEARING.z - 7); label('Mata', -78, 40); label('Mata', 95, -20); label('Estrada', 100, 52); label(S.areas.roca || S.areas.milharal ? 'Roças' : 'Plantação', 7.5, 31.5);
+    label('Padaria', VILLAGE_POS.padaria[0], VILLAGE_POS.padaria[1] + 5.5); label('Clareira', CLEARING.x, CLEARING.z - 7); label('Mata', -78, 40); label('Mata', 95, -20); label('Estrada', 100, 52); label(S.areas.roca || S.areas.milharal ? 'Roças' : 'Plantação', 7.5, 31.5);
     if (r.width > 680) for (const [key, nm] of [['pasto2', 'Pasto 2'], ['pomar', 'Pomar'], ['apiario', 'Apiário'], ['estufa', 'Estufa']]) label(nm, LOTS[key].x, LOTS[key].z + LOTS[key].d / 2 + 3);
     else label('Lotes', 3, 49);
     g.font = `700 ${mmFont * .85}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillStyle = 'rgba(255,248,230,.85)';
@@ -6532,6 +6700,7 @@ function drawMinimap() {
   const g = mmCtx, X = x => (x - mmVX) * k, Z = z => (z - mmVZ) * k;
   g.fillStyle = '#2f5a24'; g.fillRect(0, 0, mmCv.width, mmCv.height); g.drawImage(mmBg, (MM.x0 - mmVX) * k, (MM.z0 - mmVZ) * k);
   if (festToday()) { const [fx, fz] = FEST_SPOT, r = mmFont * .55; g.fillStyle = '#ffd24a'; g.strokeStyle = '#5a3a10'; g.lineWidth = mmFont * .15; g.beginPath(); for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2 - Math.PI / 2, rr2 = i % 2 ? r * .45 : r; g.lineTo(X(fx) + Math.cos(a) * rr2, Z(fz) + Math.sin(a) * rr2); } g.closePath(); g.fill(); g.stroke(); }
+  for (const o of forage.list) { g.fillStyle = { fruta: '#b45adf', mel: '#ffc83a', cogumelo: '#ff6a4a', pinhao: '#c98a4a' }[o.k]; g.strokeStyle = '#2a1a08'; g.lineWidth = mmFont * .1; g.beginPath(); g.arc(X(o.x), Z(o.z), mmFont * .28, 0, 7); g.fill(); g.stroke(); }
   const dest = mmGoal && (AV.path.length || AV.jobs.length) ? mmGoal : AV.path.length ? AV.path[AV.path.length - 1] : null;
   if (!AV.path.length && !AV.jobs.length) mmGoal = null;
   if (dest) { g.strokeStyle = '#fff2c4'; g.lineWidth = mmFont * .18; g.setLineDash([mmFont * .3, mmFont * .3]); g.beginPath(); g.moveTo(X(AV.pos.x), Z(AV.pos.z)); g.lineTo(X(dest[0]), Z(dest[1])); g.stroke(); g.setLineDash([]); g.beginPath(); g.arc(X(dest[0]), Z(dest[1]), mmFont * .35, 0, 7); g.stroke(); }
@@ -6544,23 +6713,23 @@ function updateMinimap(rdt) {
   if (!SETTINGS.map) return;
   mmBgT -= rdt; mmT -= rdt; if (mmT > 0) return; mmT = 1 / 15; drawMinimap();
 }
-function minimapGo(x, z) {
+function minimapGo(x, z, quiet) {
   x = clamp(x, WORLD.x0 + 2, WORLD.x1 - 2); z = clamp(z, WORLD.z0 + 2, WORLD.z1 - 2);
   { const ex = (x - 24) / 9.4, ez = (z + 9) / 7, e = Math.hypot(ex, ez); if (e < 1) { if (e < 1e-3) { z = -9 + 7; } else { x = 24 + ex / e * 9.4; z = -9 + ez / e * 7; } } }   // não manda para dentro do lago
   clearJobs();
   // destino perto de uma trilha/estrada em que o personagem também está: segue os pontos dela (contorna casas, silo e o riacho pela ponte)
   const segNear = (P, px, pz) => { let bi = 0, bd = 1e9; for (let i = 0; i < P.length - 1; i++) { const d = segDist(px, pz, P[i][0], P[i][1], P[i + 1][0], P[i + 1][1]); if (d < bd) { bd = d; bi = i; } } return [bi, bd]; };
   let trail = null;
-  for (const P of PATHS) { const [di, dd] = segNear(P.p, x, z), [si, sd] = segNear(P.p, AV.pos.x, AV.pos.z); if (dd < 8 && sd < 6 && (!trail || dd + sd < trail.c)) trail = { P: P.p, si, di, c: dd + sd }; }
-  if (trail && trail.si !== trail.di) {
+  for (const P of PATHS) { const R = P.raw || P.p, [di, dd] = segNear(R, x, z), [si, sd] = segNear(R, AV.pos.x, AV.pos.z); if (dd < 8 && sd < 6 && (!trail || dd + sd < trail.c)) trail = { P: R, si, di, c: dd + sd }; }
+  if (false && trail && trail.si !== trail.di) {
     const { P, si, di } = trail, way = si < di ? P.slice(si + 1, di + 1) : P.slice(di + 1, si + 1).reverse();
     for (const [wx, wz] of way) enqueue({ kind: 'walk', x: wx, z: wz });
   }
   // do outro lado do riacho: atravessa pela ponte em vez de entrar na água
   const sideA = AV.pos.x > creekX(AV.pos.z), sideB = x > creekX(z);
-  if (!(trail && trail.si !== trail.di) && sideA !== sideB && AV.pos.z > -6 && z > -6) { const [a, b] = sideA ? [BRIDGE_ENDS[1], BRIDGE_ENDS[0]] : [BRIDGE_ENDS[0], BRIDGE_ENDS[1]]; enqueue({ kind: 'walk', x: a[0], z: a[1] }); enqueue({ kind: 'walk', x: b[0], z: b[1] }); }
+  if (!NAV.grid && sideA !== sideB && AV.pos.z > -6 && z > -6) { const [a, b] = sideA ? [BRIDGE_ENDS[1], BRIDGE_ENDS[0]] : [BRIDGE_ENDS[0], BRIDGE_ENDS[1]]; enqueue({ kind: 'walk', x: a[0], z: a[1] }); enqueue({ kind: 'walk', x: b[0], z: b[1] }); }
   enqueue({ kind: 'walk', x, z }); mmGoal = [x, z];
-  puff(V1.set(x, terrainH(x, z) + .15, z), 0xffffff, 8, 1.6, .4, .35); sfx.ui(); drawMinimap();
+  puff(V1.set(x, terrainH(x, z) + .15, z), 0xffffff, 8, 1.6, .4, .35); if (!quiet) sfx.ui(); if (SETTINGS.map) drawMinimap();
 }
 function setMapBig(on) {
   if (on && !SETTINGS.map) return;
@@ -6622,6 +6791,67 @@ function updateAtmos(rdt, t) {
   ffGeo.attributes.position.needsUpdate = true; ffGeo.attributes.color.needsUpdate = true;
 }
 
+/* ---- coleta: todo dia aparecem pontos na mata e na clareira; o que tem muda com a estação ---- */
+const FORAGE_KINDS = [
+  [['fruta', 'Amoras silvestres', 3, 3, 5], ['mel', 'Mel silvestre', 1, 1, 2]],          // primavera
+  [['fruta', 'Amoras silvestres', 2, 3, 6], ['mel', 'Mel silvestre', 2, 1, 2]],          // verão
+  [['cogumelo', 'Cogumelos', 3, 2, 4], ['fruta', 'Amoras silvestres', 1, 2, 4]],         // outono
+  [['pinhao', 'Pinhão', 3, 3, 6], ['cogumelo', 'Cogumelos', 1, 1, 3]]                    // inverno
+];
+const forage = { list: [] };
+const FG = {
+  bush: lumpy(1, 1, 3.3), berry: new THREE.SphereGeometry(.07, 6, 5), stem: new THREE.CylinderGeometry(.06, .08, .3, 8).translate(0, .15, 0),
+  cap: new THREE.SphereGeometry(.2, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), stump: new THREE.CylinderGeometry(.35, .42, .5, 10).translate(0, .25, 0),
+  hive: new THREE.SphereGeometry(.28, 10, 8), cone: new THREE.ConeGeometry(.07, .26, 6), pine: new THREE.ConeGeometry(.16, .34, 7)
+};
+const FM = { leaf: std(0x3f7a2e, .85), berry: std(0x5a1f4f, .45), berry2: std(0xb3263a, .45), stem: std(0xf0e6d0, .8), cap: std(0xc8452f, .6), capB: std(0x8a5a32, .7),
+  stump: std(0x6b4a32, .9), hive: std(0xe3a63a, .55), pin: std(0x9a5a2e, .7), pine: std(0x6b4026, .85) };
+const fgSpark = new THREE.SpriteMaterial({ map: softTex, color: 0xfff2b0, transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false });
+function forageModel(k) {
+  const g = new THREE.Group(), r = () => rand(-1, 1);
+  if (k === 'fruta') { add(g, FG.bush, FM.leaf, 0, .42, 0, { s: [.62, .5, .62] }); for (let i = 0; i < 12; i++) { const a = rand(0, 6.28), h = rand(.25, .75); add(g, FG.berry, i % 3 ? FM.berry : FM.berry2, Math.cos(a) * .55, h, Math.sin(a) * .55, { cast: false }); } }
+  else if (k === 'cogumelo') { for (let i = 0; i < 4; i++) { const x = r() * .35, z = r() * .35, s = rand(.7, 1.25); add(g, FG.stem, FM.stem, x, 0, z, { s: [s, s, s] }); add(g, FG.cap, i % 2 ? FM.cap : FM.capB, x, .28 * s, z, { s: [s, s * .8, s] }); } }
+  else if (k === 'mel') { add(g, FG.stump, FM.stump, 0, 0, 0); for (let i = 0; i < 3; i++) add(g, FG.hive, FM.hive, 0, .62 + i * .17, 0, { s: [1 - i * .22, .55, 1 - i * .22] }); }
+  else { for (let i = 0; i < 7; i++) add(g, FG.cone, FM.pin, r() * .35, .05, r() * .35, { r: [Math.PI / 2, rand(0, 6), 0], cast: false }); add(g, FG.pine, FM.pine, .1, .17, -.1); }
+  g.traverse(o => { if (o.isMesh) o.userData.sharedGeo = true; });
+  const sp = new THREE.Sprite(fgSpark); sp.scale.setScalar(.9); sp.position.y = 1.2; g.add(sp); g.userData.spark = sp;
+  return g;
+}
+function clearForage() {
+  for (const o of forage.list) { scene.remove(o.g); const i = tileHits.indexOf(o.hit); if (i >= 0) tileHits.splice(i, 1); }
+  forage.list.length = 0;
+}
+function spawnForage() {
+  clearForage(); if (!S) return;
+  if (!S.forage || S.forage.day !== S.day) S.forage = { day: S.day, taken: [] };
+  let seed = S.day * 9301 + 49297; const rn = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const kinds = FORAGE_KINDS[seasonIdx()], tot = kinds.reduce((a, k) => a + k[2], 0);
+  const ok = (x, z) => x > WORLD.x0 + 4 && x < WORLD.x1 - 4 && z > WORLD.z0 + 6 && z < WORLD.z1 - 4 && pathDist(x, z) > 1.2 && creekDist(x, z) > 3.5 && !blocked(x, z, -1)
+    && Math.hypot(x - FARM2.x, z - FARM2.z) > 26 && !COLL_CIRC.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r + 1.4);
+  const spots = [];
+  for (let id = 0, tries = 0; id < 11 && tries < 900; tries++) {
+    const clear = id < 4, a = rn() * 6.283, r = clear ? 4 + rn() * 9 : 48 + rn() * 46, x = clear ? CLEARING.x + Math.cos(a) * r : 5 + Math.cos(a) * r, z = clear ? CLEARING.z + Math.sin(a) * r : 8 + Math.sin(a) * r;
+    if (!ok(x, z) || spots.some(([a2, b2]) => Math.hypot(x - a2, z - b2) < 6)) continue; spots.push([x, z]);
+    let pick2 = rn() * tot, K = kinds[0]; for (const k of kinds) { if ((pick2 -= k[2]) <= 0) { K = k; break; } }
+    const q = K[3] + Math.floor(rn() * (K[4] - K[3] + 1)), myId = id++;
+    if (S.forage.taken.includes(myId)) continue;
+    const g = forageModel(K[0]); g.position.set(x, terrainH(x, z), z); g.rotation.y = rn() * 6; scene.add(g);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(.95, 8, 6), hitInvis); hit.position.y = .5; g.add(hit);
+    const o = { id: myId, k: K[0], name: K[1], q, g, hit, x, z }; hit.userData.forage = o; tileHits.push(hit); forage.list.push(o);
+  }
+  renderer.shadowMap.needsUpdate = true; mmDirty = true;
+}
+function collectForage(o) {
+  if (!forage.list.includes(o)) return;
+  storeAdd(o.k, o.q); S.forage.taken.push(o.id); S.stats.forage = (S.stats.forage || 0) + 1;
+  playSnd('coleta') || sfx.harvest(o.k); addXP(2 + (o.k === 'mel' ? 2 : 0), null);
+  popup(V1.set(o.x, terrainH(o.x, o.z) + 1.6, o.z), `+${o.q} ${itemName(o.k).toLowerCase()}`, 'gain'); puff(V1.set(o.x, terrainH(o.x, o.z) + .6, o.z), 0xfff2b0, 14, 2.4, .8, .5);
+  clearForageOne(o); afterAction();
+  if (S.stats.forage === 1) note('Achou coisas na mata! Todo dia aparecem novas: amoras e mel na primavera e no verão, cogumelos no outono, pinhão no inverno. A feira compra tudo.', 'good', 6000);
+}
+function clearForageOne(o) { scene.remove(o.g); const i = tileHits.indexOf(o.hit); if (i >= 0) tileHits.splice(i, 1); forage.list.splice(forage.list.indexOf(o), 1); mmDirty = true; }
+function updateForage(t) { for (const o of forage.list) { const sp = o.g.userData.spark; sp.position.y = 1.15 + (SETTINGS.reduced ? 0 : Math.sin(t * 2 + o.id) * .12); sp.material.opacity = .55 + .3 * Math.sin(t * 3 + o.id * 2); } }
+
 let stepping = false;   // __farm.step: simula quadros sem abrir novos laços de requestAnimationFrame
 let last = performance.now(), simT = 0, hudT = 0, saveT = 0, frameN = 0, shownMoney = -1, perfChecked = false;
 const frameTimes = [];
@@ -6657,6 +6887,7 @@ function frame(now) {
   updateBursts(rdt);
   updateFest(rdt, simT);
   if (mode === 'play') updateMinimap(rdt);
+  updateForage(simT);
   if (windBlades) windBlades.rotation.z += rdt * .6;
   waterNormal.offset.x += rdt * .012; waterNormal.offset.y += rdt * .006;
   for (const t of tiles) {
@@ -6725,6 +6956,8 @@ function frame(now) {
 /* =====================================================================
    BOOT
 ===================================================================== */
+// enfeite pequeno (moita, toco, flor) que ficou em cima de estrada: sem colisão, para não travar o personagem
+for (let i = COLL_CIRC.length - 1; i >= 0; i--) { const [x, z, r] = COLL_CIRC[i]; if (r <= 1 && pathDist(x, z) < r - .15) COLL_CIRC.splice(i, 1); }
 applySettings();
 applyQuality();
 resetWorld();
@@ -6736,7 +6969,7 @@ loadChars();
 loadAnimalPack();
 computeBest(); buildHotbar(); refreshHint();
 if (hasSave()) { $('#btn-continue').classList.remove('hidden'); $('#btn-new').classList.replace('btn', 'btn'); $('#btn-new').classList.add('ghost'); }
-if (location.search.includes('debug')) window.__farm = { scene, visitors, VPOOL, trySpawnVisitor, refreshBuildings, upgradeBld, buyArea, startRecipe, econNewDay, genSpecial, deliverSpecial, shopAdd, storeAdd, updateVisitors, counterQ, spotOcc, missionProgress, hub: t => { hubTab = t; openModal('farm'); }, get S() { return S; }, tiles, doAction, planAction, clickTile, AV, enqueue, interact, keys, animals, pets, buyLivestock, adoptPet, animalAction, npcs, openNpc, step: n => { stepping = true; try { for (let i = 0; i < n; i++) frame(last + 1000 / 60); } finally { stepping = false; } }, camera, controls, renderer, get mode() { return mode; }, TUT, tut, tutNext, openModal, closeModal, sellCrop, setSpeed, addXP, addOrder, newDay, quote, A, applyQuality, SETTINGS, terrainH, creekDist, COLL_CIRC, festRefresh, festJudge, applyTreeSeason, minimapGo, drawMinimap, SIGNPOSTS, get treeSeason() { return treeSeason; } };
+if (location.search.includes('debug')) window.__farm = { scene, visitors, VPOOL, trySpawnVisitor, refreshBuildings, upgradeBld, buyArea, startRecipe, econNewDay, genSpecial, deliverSpecial, shopAdd, storeAdd, updateVisitors, counterQ, spotOcc, missionProgress, hub: t => { hubTab = t; openModal('farm'); }, get S() { return S; }, tiles, doAction, planAction, clickTile, AV, enqueue, interact, keys, animals, pets, buyLivestock, adoptPet, animalAction, npcs, openNpc, step: n => { stepping = true; try { for (let i = 0; i < n; i++) frame(last + 1000 / 60); } finally { stepping = false; } }, camera, controls, renderer, get mode() { return mode; }, TUT, tut, tutNext, openModal, closeModal, sellCrop, setSpeed, addXP, addOrder, newDay, quote, A, applyQuality, SETTINGS, terrainH, creekDist, COLL_CIRC, festRefresh, festJudge, SND, playSnd, PATHS, pathDist, BLOCK, groundY, NAV, navRoute, COLL_SEGS, forage, spawnForage, collectForage, applyTreeSeason, minimapGo, drawMinimap, SIGNPOSTS, get treeSeason() { return treeSeason; } };
 updateEnv();
 requestAnimationFrame(frame);
 setTimeout(() => $('#loading').classList.add('out'), 300);
