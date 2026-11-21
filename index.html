@@ -62,6 +62,21 @@
 
   #topright { position: absolute; top: 14px; right: 14px; display: flex; gap: 8px; align-items: stretch; }
   #minimap { position: absolute; top: 66px; right: 14px; width: 196px; height: 174px; padding: 0; overflow: hidden; cursor: crosshair; touch-action: none; }
+  #joy { position: absolute; right: 18px; bottom: 136px; width: 124px; height: 124px; border-radius: 50%; display: none; touch-action: none;
+    background: radial-gradient(circle, rgba(255, 248, 230, .1), rgba(20, 14, 8, .28)); border: 2px solid rgba(255, 248, 230, .4); box-shadow: 0 6px 20px rgba(0, 0, 0, .25); }
+  #joy i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 35% 30%, #fff8e6, #f4c95d 70%); box-shadow: 0 3px 10px rgba(0, 0, 0, .35); transition: transform .12s; }
+  #joy.on i { transition: none; }
+  #btn-act { position: absolute; right: 47px; bottom: 274px; width: 66px; height: 66px; border-radius: 50%; display: none; touch-action: none; font-weight: 800; font-size: 14px;
+    color: #3b2a10; background: radial-gradient(circle at 35% 30%, #fff3c4, #f4c95d 75%); border: 2px solid rgba(59, 42, 16, .35); box-shadow: 0 6px 18px rgba(0, 0, 0, .3); }
+  #btn-act:active { transform: scale(.94); }
+  body.touch #joy, body.touch #btn-act { display: block; }
+  @media (max-height: 500px) {   /* celular deitado: pouca altura entre o minimapa e a barra de sementes */
+    body.touch #minimap:not(.big) { width: 90px; height: 80px; }
+    body.touch #joy { right: 14px; bottom: 130px; width: 92px; height: 92px; } body.touch #joy i { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+    body.touch #btn-act { right: 122px; bottom: 140px; width: 56px; height: 56px; font-size: 12px; }
+  }
+  @media (max-height: 600px) { #joy { bottom: 112px; width: 108px; height: 108px; } #btn-act { bottom: 132px; right: 140px; } }
   #minimap canvas { display: block; width: 100%; height: 100%; border-radius: inherit; }
   #mm-big { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 8px;
     background: rgba(38, 27, 17, .82); color: var(--ink); font-size: 15px; font-weight: 800; line-height: 1; display: grid; place-items: center; cursor: pointer; }
@@ -288,6 +303,8 @@
   <div id="minimap" class="card" title="Minimapa: clique para andar até lá" aria-label="Minimapa. Clique num ponto para o personagem andar até lá."><canvas id="mm"></canvas><button id="mm-big" title="Ampliar o mapa (N)" aria-label="Ampliar o mapa" aria-pressed="false">⤢</button></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="hint"></div>
+  <div id="joy" aria-label="Joystick: arraste para andar"><i></i></div>
+  <button id="btn-act" aria-label="Agir no que estiver à frente">Agir</button>
   <div id="hotbar" class="card" role="toolbar" aria-label="Sementes e lojas"></div>
 </div>
 <div id="tut" class="card hidden" aria-live="polite">
@@ -340,6 +357,7 @@
 <script src="modelos/fazendeira.js"></script>
 <script src="modelos/vaca.js"></script>
 <script src="modelos/porco.js"></script>
+<script src="modelos/ovelha.js"></script>
 <script src="sons/sons.js"></script>
 
 <script type="module">
@@ -1861,11 +1879,11 @@ function makeDuckLive(v = 0) {
 ===================================================================== */
 const PACK = { ready: false, src: {} };
 const PACK_BIRDS = new Set(['hen', 'rooster', 'chick', 'duck', 'goose', 'turkey']);
-const PACK_TAIL = new Set(['vaca', 'porco', 'cow', 'black_cow', 'calf', 'horse', 'pony', 'donkey', 'goat', 'pig', 'piglet']);
+const PACK_TAIL = new Set(['vaca', 'porco', 'ovelha', 'cow', 'black_cow', 'calf', 'horse', 'pony', 'donkey', 'goat', 'pig', 'piglet']);
 const PACK_SKIP_TINT = new Set(['dark', 'nose', 'beak', 'pink', 'red', 'cow_b', 'eye', 'eyes', 'black']);
 // bichos novos (Meshy): vêm centrados no meio do corpo (a vaquinha também olhando na diagonal); gira para olhar +Z e assenta
 // a base no chão, como os bichos do pacote (o vertex shader que dobra patas, cabeça e rabo usa essas coordenadas)
-const MESHY_YAW = { vaca: .799, porco: 0 };
+const MESHY_YAW = { vaca: .799, porco: 0, ovelha: -.4 };
 function fixMeshy(sc, k) {
   const R = new THREE.Matrix4().makeRotationY(MESHY_YAW[k] || 0);
   sc.updateMatrixWorld(true);
@@ -1877,7 +1895,7 @@ function fixMeshy(sc, k) {
   sc.updateMatrixWorld(true);
 }
 function loadAnimalPack() {
-  const all = { ...(window.ANIMAIS_GLB || {}), ...(window.VACA_GLB ? { vaca: window.VACA_GLB } : {}), ...(window.PORCO_GLB ? { porco: window.PORCO_GLB } : {}) }; if (!Object.keys(all).length) return;
+  const all = { ...(window.ANIMAIS_GLB || {}), ...(window.VACA_GLB ? { vaca: window.VACA_GLB } : {}), ...(window.PORCO_GLB ? { porco: window.PORCO_GLB } : {}), ...(window.OVELHA_GLB ? { ovelha: window.OVELHA_GLB } : {}) }; if (!Object.keys(all).length) return;
   const L = new GLTFLoader();
   Promise.all(Object.entries(all).map(([k, b64]) => new Promise(res => {
     const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
@@ -2261,7 +2279,7 @@ const LP = {
     return lpBird({ len: .46, h: .28, w: .3, hip: .1, duck: true, neck: .2, headR: .085, col: C });
   }
 };
-const GAME_LP = { galinha: (v, a) => (a && a.id % 4 === 1 ? LP.rooster() : LP.hen(v)), vaca: v => (PACK.src.vaca && makePackAnimal('vaca', { h: 1.55 })) || LP.cow(v), ovelha: v => LP.sheep(v), porco: v => (PACK.src.porco && makePackAnimal('porco', { h: .95 })) || LP.pig(v), cabra: v => LP.goat(v), pato: v => LP.duck(v) };
+const GAME_LP = { galinha: (v, a) => (a && a.id % 4 === 1 ? LP.rooster() : LP.hen(v)), vaca: v => (PACK.src.vaca && makePackAnimal('vaca', { h: 1.55 })) || LP.cow(v), ovelha: v => (PACK.src.ovelha && (P => { if (P && v === 2) P.g.traverse(o => { if (o.isMesh) o.material.color.setHex(0x4a4440); }); return P; })(makePackAnimal('ovelha', { h: .95 }))) || LP.sheep(v), porco: v => (PACK.src.porco && makePackAnimal('porco', { h: .95 })) || LP.pig(v), cabra: v => LP.goat(v), pato: v => LP.duck(v) };
 // patos da lagoa com o modelo novo (só o corpo aparece na água)
 for (const [i, d] of ducks.entries()) {
   const P = LP.duck(i === 0 ? 0 : i === 1 ? 2 : 0); for (const l of P.legs) l.visible = false;
@@ -2466,7 +2484,7 @@ function buildGdAmbient() {
   const defs = [[() => LP.horse(0), pc.x, pc.z, 5.5], [() => LP.horse(1), pc.x, pc.z, 5.5], [() => LP.horse(2), pc.x, pc.z, 5.5], [() => LP.horse(3), pc.x, pc.z, 5.5],
     [() => { const h = LP.horse(4); h.g.scale.setScalar(.62); return h; }, pc.x, pc.z, 5],
     [() => LP.horse(1), -27, -47, 4.5], [() => LP.donkey(), -29, -44, 4.5],
-    [Object.assign(() => (PACK.src.vaca && makePackAnimal('vaca', { h: .9 })) || (c => (c.g.scale.setScalar(.55), c))(LP.cow(2)), { meshy: 'vaca' }), -8.5, -22.5, 5.5], [() => { const s = LP.sheep(0); s.g.scale.setScalar(.6); return s; }, -9, -21, 5.5],
+    [Object.assign(() => (PACK.src.vaca && makePackAnimal('vaca', { h: .9 })) || (c => (c.g.scale.setScalar(.55), c))(LP.cow(2)), { meshy: 'vaca' }), -8.5, -22.5, 5.5], [Object.assign(() => (PACK.src.ovelha && makePackAnimal('ovelha', { h: .58 })) || (q => (q.g.scale.setScalar(.6), q))(LP.sheep(0)), { meshy: 'ovelha' }), -9, -21, 5.5],
     [Object.assign(() => (PACK.src.porco && makePackAnimal('porco', { h: .55 })) || (p => (p.g.scale.setScalar(.5), p))(LP.pig(0)), { meshy: 'porco' }), -4.5, -26, 3], [() => LP.chick(), -13, 18.5, 2.6], [() => LP.chick(), -12.5, 19.5, 2.6], [() => LP.chick(), -13.5, 19, 2.6],
     [() => LP.duck(0), 27, -3.4, 3.5], [() => LP.duck(1), 26, -2, 3.5]];
   for (const [mk, cx, cz, r] of defs) {
@@ -4414,7 +4432,7 @@ function renderModal() {
       <div class="foot"><button class="btn ghost small" id="mn-avatar">Editar personagem</button><button class="btn ghost small" id="mn-tut">Ver o tutorial de novo</button><button class="btn ghost small" id="mn-reset">Recomeçar do zero</button></div>
       <p class="help">Mouse: clique num canteiro e seu personagem vai até lá (arraste para enfileirar tarefas). Clique no chão para andar. Botão direito + arrastar gira a câmera, a roda dá zoom.<br>
       Teclado: W A S D (ou setas) anda, E (ou Enter) age no que estiver à frente: canteiro, feira ou celeiro. 1 a 5 escolhem a semente, M abre a feira, U o armazém, B os bichos, G a gestão da fazenda, N amplia o mapa, Espaço pausa, Esc fecha.<br>
-      Celular: toque age, dois dedos giram e dão zoom.</p>`;
+      Celular: toque age, arrastar um dedo gira a câmera, dois dedos dão zoom; o joystick anda e o botão Agir faz o mesmo que a tecla E.</p>`;
   }
 }
 panelEl.addEventListener('click', e => {
@@ -5091,15 +5109,38 @@ function idlePose(m, ia) {
   else { m.arms[1].rotation.x = -2.5 * s; m.arms[1].rotation.z = .95 * s; m.head.rotation.x = -.1 * s; }
 }
 function blinkEyes(o, eyes, dt) { if (!eyes) return; o.bl = (o.bl ?? rand(1, 4)) - dt; eyes.scale.y = o.bl < .12 ? .1 : 1; if (o.bl < 0) o.bl = rand(2.5, 6); }
+/* ---- joystick e botão de ação no celular (aparecem em telas de toque) ---- */
+const JOY = { on: false, x: 0, y: 0, id: null };
+{
+  const el = $('#joy'), knob = el.querySelector('i'), act = $('#btn-act');
+  const setTouch = () => document.body.classList.add('touch');
+  if (matchMedia('(pointer: coarse)').matches) setTouch();
+  addEventListener('touchstart', setTouch, { once: true, passive: true });
+  const move = e => {
+    const r = el.getBoundingClientRect(), R = r.width / 2 * .62;
+    let dx = (e.clientX - (r.left + r.width / 2)) / R, dy = (e.clientY - (r.top + r.height / 2)) / R; const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+    JOY.x = dx; JOY.y = -dy; knob.style.transform = `translate(${dx * R / (r.width / el.offsetWidth || 1)}px, ${dy * R / (r.width / el.offsetWidth || 1)}px)`;
+  };
+  const end = e => { if (e.pointerId !== JOY.id) return; JOY.on = false; JOY.id = null; JOY.x = JOY.y = 0; el.classList.remove('on'); knob.style.transform = ''; };
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation(); if (mode !== 'play' || modal) return;
+    audioInit(); JOY.on = true; JOY.id = e.pointerId; el.classList.add('on'); try { el.setPointerCapture(e.pointerId); } catch {} move(e);
+  });
+  el.addEventListener('pointermove', e => { if (e.pointerId === JOY.id) { e.preventDefault(); move(e); } });
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
+  act.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+  act.addEventListener('click', e => { e.stopPropagation(); if (mode === 'play' && !modal) { audioInit(); interact(); } });
+}
 function updateAvatar(dt, t) {
   const m = AV.model; if (!m) return;
   let dirx = 0, dirz = 0, want = 0;
   if (mode === 'play' && !modal && !intro && !AV.act) {
-    const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    const joyMag = JOY.on ? Math.hypot(JOY.x, JOY.y) : 0; if (joyMag > .15) { f += JOY.y; r += JOY.x; }
     if (f || r) {
       if (AV.job || AV.jobs.length || AV.path.length) clearJobs();
       const fw = V1.subVectors(controls.target, camera.position).setY(0).normalize(), rt = V2.set(-fw.z, 0, fw.x);
-      V3.set(0, 0, 0).addScaledVector(fw, f).addScaledVector(rt, r).normalize(); dirx = V3.x; dirz = V3.z; want = AV_SPEED;
+      V3.set(0, 0, 0).addScaledVector(fw, f).addScaledVector(rt, r).normalize(); dirx = V3.x; dirz = V3.z; want = AV_SPEED * (joyMag > .15 && !(keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD) ? clamp(joyMag, .4, 1) : 1);
     } else {
       if (!AV.job && AV.jobs.length) startJob();
       if (AV.path.length) {
@@ -6342,9 +6383,18 @@ canvas.addEventListener('pointerdown', e => {
   canvas.focus({ preventScroll: true }); canvas.setPointerCapture(e.pointerId);
   updateHover(e); pressAt();
 });
+const touchSph = new THREE.Spherical();
 canvas.addEventListener('pointermove', e => {
   const p = pointers.get(e.pointerId); if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) p.moved = true;
-  if (e.pointerType === 'touch') return;
+  if (e.pointerType === 'touch') {   // celular: arrastar um dedo gira a câmera (tocar sem arrastar continua agindo)
+    if (p && p.moved && pointers.size === 1 && mode === 'play' && !modal && !intro) {
+      const dx = e.clientX - (p.lx ?? e.clientX), dy = e.clientY - (p.ly ?? e.clientY), off = V1.subVectors(camera.position, controls.target), sp = touchSph.setFromVector3(off);
+      sp.theta -= dx * .007; sp.phi = clamp(sp.phi - dy * .006, controls.minPolarAngle, controls.maxPolarAngle);
+      off.setFromSpherical(sp); camera.position.copy(controls.target).add(off); controls.update();
+    }
+    if (p) { p.lx = e.clientX; p.ly = e.clientY; }
+    return;
+  }
   updateHover(e);
   if ((e.buttons & 1) && dragMode && hoverTile && hoverTile !== lastAct) { lastAct = hoverTile; clickTile(hoverTile, true); }
 });
